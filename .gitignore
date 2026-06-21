@@ -10,3 +10,4 @@ vector_db/
 .DS_Store
 .idea/
 .vscode/
+*.egg-info/

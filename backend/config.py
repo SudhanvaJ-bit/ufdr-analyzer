@@ -15,9 +15,9 @@ class Settings(BaseSettings):
     CHROMA_DB_DIR: str = str(BASE_DIR / "vector_db")
     CHROMA_COLLECTION_NAME: str = "forensic_evidence"
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
-    GEMINI_MODEL: str = "gemini-1.5-flash"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     RAG_TOP_K: int = 15
-    MAX_RESPONSE_TOKENS: int = 2048
+    MAX_RESPONSE_TOKENS: int = 3072
     SUSPICIOUS_KEYWORDS: list = [
         "bitcoin", "crypto", "wallet", "btc", "eth", "usdt",
         "drugs", "cocaine", "heroin", "meth", "weed", "ganja",

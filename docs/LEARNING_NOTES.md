@@ -218,8 +218,75 @@ ungrounded Gemini response defeats that purpose without any visible error
   used?" → good chance to mention this exact bug as something you caught
   during review, not something you got right by luck the first time.
 
-**Simple interview explanation:** "There was a subtle bug where the
-Gemini path could silently skip the instruction telling it to only use
-the provided evidence. I fixed it by making that instruction the default
-for every provider, not just one."
+---
 
+## Real-world validation: Gemini model deprecation (encountered during testing)
+
+**What happened:** While testing `/ai/{case_id}/ask` with a real Gemini API
+key, the call failed with `404 models/gemini-1.5-flash is not found for API
+version v1beta`. Google had deprecated and shut down all Gemini 1.0 and 1.5
+models. Fixed by updating `GEMINI_MODEL` in `config.py` from
+`"gemini-1.5-flash"` to `"gemini-2.5-flash"`.
+
+**Why this is worth mentioning in an interview, not hiding:** This wasn't a
+bug in the code — it was an external API changing under a hardcoded model
+name. What's actually interesting is what happened when it failed: the
+system didn't crash or return a 500 error. `llm_client.py`'s exception
+handler caught the failure and fell back to the offline evidence summary
+automatically, with the actual error message included in the response
+(`"⚠️ Note: AI summarization unavailable (404 ...)"`). The officer using
+the tool would have still gotten a usable answer, not a blank screen.
+
+**Interview question this answers:** "How does your system handle a
+third-party API outage or deprecation?" → "It already has — a Gemini model
+I was using got deprecated mid-development, and the fallback chain caught
+it and degraded to a structured offline summary automatically, with the
+real error surfaced for debugging. That's exactly the failure mode the
+fallback design exists for."
+
+**Lesson for config design:** Hardcoding a specific model version string
+(vs. an alias the provider keeps pointed at a current model) means you
+inherit the provider's deprecation schedule. Worth tracking
+https://ai.google.dev/gemini-api/docs/changelog periodically, or pinning to
+whichever alias Google documents as their "current stable" pointer if one
+exists at the time you read this.
+
+---
+
+## Follow-up fix: truncated answers (token limit + prompt verbosity)
+
+**What happened:** A real Gemini-mode test with 9 matching crypto-related
+records got cut off mid-sentence. Root cause was two compounding factors:
+1. `MAX_RESPONSE_TOKENS` was 2048, and
+2. the prompt asked the model to "cite specific messages... when possible"
+   without limiting *how many* it should enumerate — so it tried to write
+   a full structured breakdown for every one of the 9 records and ran out
+   of budget partway through.
+
+**Fix (both, deliberately):**
+- Raised `MAX_RESPONSE_TOKENS` to 3072 in `config.py` — a safety margin,
+  not the actual fix.
+- Rewrote the Gemini prompt in `llm_client.py` to explicitly ask for a
+  short direct answer up front, grouped/summarized evidence instead of one
+  block per record, `[N]`-style index citations instead of re-quoting full
+  records, and a representative-sample approach once there are more than
+  ~5 matching records.
+
+**Why both and not just one:** Raising the token limit alone just delays
+the same problem to a larger evidence set (e.g. 50 matching records
+instead of 9). Tightening the prompt alone reduces *typical* verbosity but
+doesn't guarantee safety against an unusually large or repetitive case.
+Together, the prompt keeps normal answers naturally concise, and the token
+increase is headroom for when there's genuinely a lot to summarize.
+
+**Interview question this answers:** "How do you handle cases with a large
+volume of matching evidence without blowing your token budget or
+overwhelming the officer with a wall of text?" → explain this exact
+grouped-summary + indexed-citation approach, and that you found the
+verbosity problem through real testing, not by guessing upfront.
+
+**Note:** This prompt change currently only applies to the Gemini code
+path (`_ask_gemini`). The OpenAI fallback path builds its own simpler
+prompt and wasn't updated to match — a known asymmetry, low priority since
+OpenAI is the secondary fallback, but worth aligning if OpenAI becomes the
+primary provider later.

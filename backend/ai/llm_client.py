@@ -89,8 +89,19 @@ INVESTIGATOR'S QUESTION:
 {question}
 
 Provide a clear, structured answer based ONLY on the evidence above.
-Cite specific messages, phone numbers, or records when possible.
-If the evidence doesn't contain enough information, say so clearly.
+
+FORMAT RULES (important — keep the answer scannable, not exhaustive):
+- Start with a 1-2 sentence direct answer to the question.
+- Then group similar/repeated evidence together instead of listing every
+  matching record individually — e.g. "5 messages across Telegram,
+  WhatsApp, and SMS reference the same Bitcoin address [1][2][3][4][5]"
+  rather than a separate numbered block per message.
+- Reference evidence using its [N] index from the context above rather
+  than quoting the full record each time.
+- If there are more than ~5 matching records, summarize the pattern and
+  cite a few representative examples rather than enumerating all of them.
+- If the evidence doesn't contain enough information, say so clearly and
+  briefly rather than padding the answer.
 """
             response = model.generate_content(
                 full_prompt,
