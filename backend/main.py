@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.database import init_db
 from backend.config import settings
-from backend.routers import upload, query, search, ai
+from backend.routers import upload, query, search, ai, analysis
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,6 +31,7 @@ app.include_router(upload.router)
 app.include_router(query.router)
 app.include_router(search.router)
 app.include_router(ai.router)
+app.include_router(analysis.router)
 
 @app.get("/", tags=["Health"])
 def root():
