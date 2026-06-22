@@ -48,6 +48,206 @@ manage a multi-week project with clear checkpoints rather than just
 
 ---
 
+## backend/analysis/risk_scorer.py (new — Phase 9)
+
+**Purpose:** Combines per-message content risk (already computed by
+`entity_extractor.py`) with each contact's position in the Phase 8
+communication graph into one transparent, case-level risk score per
+contact.
+
+**Important functions/classes:**
+- `score_contacts(chats, centrality)` — the main entry point; returns a
+  `ContactRiskProfile` per number, covering everyone who appears in
+  either the chat data or the graph (so calls-only contacts with no chat
+  history still get scored on network risk alone).
+- `ContactRiskProfile.to_dict()` — always returns the full breakdown
+  (avg/max content risk, betweenness, weighted degree, flags) alongside
+  the final number, never just the score by itself.
+- `get_top_risk_contacts(profiles, top_n)` — ranks and serializes the
+  top N.
+
+**The formula, and why it's weighted this way:**
+`combined = avg_content_risk*0.4 + max_content_risk*0.2 + (betweenness*10)*0.25
+          + (normalized_weighted_degree*10)*0.15`, then +1 per triggered
+pattern flag (foreign_contact, bridges_clusters, high_risk_content,
+high_network_volume), capped at 10.
+
+Content risk gets 60% combined weight, network risk 40%, because content
+risk is direct evidence (a message literally contains a crypto address)
+while network position is circumstantial inference (being well-connected
+isn't proof of anything by itself — a family group admin is well-connected
+too). A forensic tool should weight direct evidence over structural
+inference; that's a deliberate stance, not an arbitrary tuning choice.
+
+**Why a transparent rule-based formula instead of an ML model:** An
+investigator needs to be able to ask "why was this person flagged?" and
+get a real, inspectable answer — not "the model said so." Every score
+returned by this module comes with its full breakdown.
+
+**Validated on real sample data:** The #1 ranked contact wasn't the
+highest-volume talker (51 messages) or the Phase-8 "biggest hub" by raw
+connections — it was a lower-volume foreign number that triggered ALL
+FOUR pattern flags simultaneously. The Phase-8 top hub actually fell to
+5th place here, specifically because it has zero betweenness (doesn't
+bridge any clusters) despite having the most connections. This is the
+formula working as designed: convergence of independent signals beats
+raw popularity.
+
+**Common errors and how to debug:**
+- *A contact appears with all-zero content risk but a nonzero score* →
+  expected if they have no chat history but DO appear in the
+  communication graph (e.g. calls-only) — their score comes entirely
+  from network risk in that case, which is intentional, not a bug.
+- *`normalized_weighted_degree` is always 0* → means `centrality` was
+  empty or every weighted_degree was 0 (e.g. an empty case); check that
+  the graph was actually built before scoring.
+
+**Interview questions:**
+- "Why 60/40 instead of, say, 50/50?" → direct evidence vs. circumstantial
+  inference — be ready to say this explicitly, it's a designed stance.
+- "How do you avoid this being a black box?" → every result includes its
+  full numeric breakdown and which pattern flags fired, not just a score.
+- "Walk me through a real result." → use the validated example above:
+  busiest talker ≠ top risk score, because it didn't bridge any clusters.
+- "What's a known limitation?" → currently treats sender and receiver of
+  a risky message equally; a more refined version might weight the
+  sender's own risk more heavily, since sending implicates more directly
+  than receiving.
+
+**Simple interview explanation:** "I combine each person's message
+content risk with their position in the communication graph from Phase
+8, weighted 60/40 toward content since that's direct evidence. I tested
+it on real data and the top-ranked person wasn't the one with the most
+messages — it was someone where several independent risk signals lined
+up at once, which is exactly the kind of non-obvious lead this is meant
+to surface."
+
+---
+
+## backend/analysis/graph_analyzer.py (new — Phase 8)
+
+**Purpose:** Builds an undirected, weighted communication graph from a
+case's chats and calls combined, and computes centrality metrics to
+identify key people in the network.
+
+**Important functions/classes:**
+- `build_communication_graph(chats, calls)` — accumulates per-pair stats
+  (chat_count, call_count, total_risk, max_risk) across both record types
+  into ONE edge per pair, then builds the NetworkX graph.
+- `_edge_weight(count, total_risk)` — combines frequency and risk into a
+  single weight, with risk weighted 2x relative to raw count, so a pair
+  with a couple of high-risk crypto messages outranks a pair with many
+  mundane ones.
+- `compute_centrality(graph)` — returns degree centrality, betweenness
+  centrality, weighted degree, and connection count per node.
+- `get_top_hubs(centrality, top_n)` / `get_top_connectors(centrality, top_n)`
+  — convenience rankings by degree vs. betweenness respectively.
+
+**Why combine chats AND calls into ONE graph instead of two:** A suspect
+who mostly calls one contact and mostly texts another would be split
+across two incomplete pictures with separate graphs. One combined graph
+better reflects real relationship strength, and the edge data still
+records the chat/call breakdown separately so nothing is lost.
+
+**Why two centrality metrics, not just one:** Degree centrality answers
+"who talks to the most people" (a hub/organizer). Betweenness centrality
+answers "who sits on the path between two people who don't talk
+directly" (a bridge/broker). These can surface completely different
+people — validated on real sample data where the top hub by degree had
+ZERO betweenness, while two other, less-connected-looking numbers turned
+out to be the actual structural bridges. A bridge can be a low-volume
+coordinator who'd never show up if you only ranked by message count.
+
+**Common errors and how to debug:**
+- *Graph is empty / `compute_centrality` returns `{}`* → check that
+  chats/calls actually have non-empty `sender`/`receiver` or
+  `caller_number`/`receiver_number` fields; malformed records with a
+  missing number or a self-loop (sender == receiver) are silently
+  skipped rather than crashing.
+- *Betweenness centrality is slow on a very large case* → NetworkX's
+  betweenness algorithm is O(V×E); for hundreds+ of distinct contacts,
+  pass the `k` parameter to `nx.betweenness_centrality` to sample instead
+  of computing exactly.
+
+**Interview questions:**
+- "Why betweenness centrality and not just counting messages?" → exactly
+  the hub-vs-bridge distinction above; a great concrete example to walk
+  through if asked.
+- "How do you weight edges, and why?" → frequency + 2x risk multiplier;
+  explain the reasoning (a couple of high-risk messages should matter
+  more than a lot of bland ones).
+- "How would this scale to a case with thousands of contacts?" → mention
+  the betweenness sampling parameter, and that in production you might
+  also restrict the graph to flagged/high-risk records only rather than
+  every single message.
+
+**Simple interview explanation:** "I build one graph combining both
+chats and calls, with edges weighted by how often two people communicated
+and how risky those communications were. Then I compute two different
+centrality scores — one finds the most talkative hubs, the other finds
+the people who bridge separate groups, which is often the more
+interesting lead even when they're not the most active person in the
+data."
+
+**Follow-up fix found during live testing:** The first version of
+`get_top_connectors` returned the top-N nodes by betweenness regardless
+of whether their score was actually nonzero. On real data, this meant a
+node with betweenness=0 (a hub that talks to everyone directly, so
+nothing needs to route through it) showed up in the "bridges" list
+purely to pad it to 5 results — misleadingly implying it had a bridging
+role it didn't have. Fixed by filtering out zero-betweenness nodes
+entirely before ranking, even if that means returning fewer than top_n
+results. This is a good interview example of the difference between "no
+results found" and "a real zero" — a score of exactly 0 here isn't noise,
+it's meaningful, and silently padding past it would have hidden that.
+
+---
+
+## backend/routers/analysis.py (new — Phase 8)
+
+**Purpose:** Exposes the link analysis graph over HTTP —
+`GET /analysis/{case_id}/graph` and `GET /analysis/{case_id}/key-players`.
+
+**Important functions:**
+- `get_communication_graph()` — returns the full graph as a flat
+  nodes+edges JSON shape, designed to be handed directly to a graph
+  visualization library (react-force-graph, vis-network, Pyvis) without
+  any further transformation on the frontend.
+- `get_key_players()` — returns just the top-N hubs and top-N bridges, a
+  faster answer for "who matters here" without needing to render a full
+  graph.
+- `_build_graph_for_case()` — shared helper so both endpoints load the
+  case's chats/calls and build the graph the same way exactly once.
+
+**Why nodes+edges JSON instead of returning NetworkX's native format:**
+NetworkX graph objects aren't JSON-serializable directly, and even if
+they were, every graph visualization library expects the same flat
+`{nodes: [...], edges: [...]}` shape — converting to that shape here
+means the frontend never needs to know or care that NetworkX is involved
+at all.
+
+**Common errors and how to debug:**
+- *404 "Case not found"* → wrong `case_id`.
+- *Empty nodes/edges with a "message" field explaining why* → the case
+  has no chat/call records with valid sender/receiver numbers; this is a
+  deliberate empty-state response, not an error.
+
+**Interview questions:**
+- "Walk me through what happens when the frontend requests the graph." →
+  router validates the case exists → loads chats+calls from SQLite →
+  `graph_analyzer.build_communication_graph()` builds the NetworkX graph
+  → `compute_centrality()` scores every node → `graph_to_json()`
+  flattens it → returned directly, ready to render.
+
+**Simple interview explanation:** "This is the endpoint that turns raw
+chat and call records into a graph the frontend can actually draw —
+nodes are phone numbers, edges show how strongly two people are
+connected, and every node comes pre-scored with its hub/bridge
+importance."
+
+
+---
+
 ## backend/vector_store/chroma_store.py (fixed)
 
 **Purpose:** Wraps ChromaDB + TF-IDF to provide semantic (meaning-based)

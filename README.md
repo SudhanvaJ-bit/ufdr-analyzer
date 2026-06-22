@@ -42,7 +42,7 @@ weeks. This tool cuts that down to minutes:
 | 🔁 **Resilient AI Fallback** | Gemini → OpenAI → offline structured summary — never just breaks | ✅ |
 | 🕸️ **Basic Link Analysis** | Find common contacts shared between two suspects | ✅ |
 | 🕸️ **Full Relationship Graph** | NetworkX graph (chats+calls combined), degree + betweenness centrality to find hubs and bridges | ✅ |
-| 📊 **Risk Pattern Detection** | Case-level suspicious pattern detection beyond per-record scoring | 🔜 |
+| 📊 **Risk Pattern Detection** | Case-level per-contact risk score combining message content risk with graph position (centrality), with full explainable breakdown | ✅ |
 | 📄 **PDF Reports** | Auto-generated investigation summary documents | 🔜 |
 | 🖥️ **Officer Dashboard** | Streamlit frontend | 🔜 |
 | 🐳 **Docker Deployment** | Containerized, cloud-deployable | 🔜 |
@@ -206,6 +206,7 @@ Visit **http://localhost:8000/docs** for the interactive Swagger API explorer.
 | `GET` | `/ai/mode` | Check whether Gemini / OpenAI / offline mode is active |
 | `GET` | `/analysis/{id}/graph` | Full communication graph (nodes+edges), ready for visualization |
 | `GET` | `/analysis/{id}/key-players` | Top hubs (degree centrality) and top bridges (betweenness centrality) |
+| `GET` | `/analysis/{id}/risk-ranking` | Per-contact combined risk score (content + network), full explainable breakdown |
 
 Full interactive list at `/docs` once the server is running.
 
@@ -232,6 +233,12 @@ Full interactive list at `/docs` once the server is running.
   summary) that kept the tool fully functional through a real Gemini model
   deprecation encountered mid-development — validating the resilience
   design under an actual production failure, not just a hypothetical one.
+- Designed a transparent, explainable risk-scoring system combining
+  per-message content analysis with communication-graph centrality
+  metrics, weighted to favor direct evidence over structural inference;
+  validated on real data, where the top-ranked risk lead was not the
+  highest-volume contact but the one where multiple independent signals
+  converged.
 - Built and tested against a real Ministry of Home Affairs / National
   Investigation Agency smart-automation problem statement (SIH, Problem ID 25198).
 

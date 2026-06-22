@@ -10,12 +10,15 @@ WHY A SEPARATE ROUTER FROM query.py?
   module (graph_analyzer.py) and its own router.
 
 ENDPOINTS IN THIS FILE:
-  GET /analysis/{case_id}/graph        — full graph as nodes+edges JSON,
+  GET /analysis/{case_id}/graph         — full graph as nodes+edges JSON,
                                           ready for a frontend graph view.
   GET /analysis/{case_id}/key-players   — top hubs (degree) and top
                                           bridges (betweenness) in one
                                           response, the quick "who matters
                                           here" answer for an officer.
+  GET /analysis/{case_id}/risk-ranking  — per-contact combined risk score
+                                          (Phase 9), merging message
+                                          content risk with graph position.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -30,6 +33,7 @@ from backend.analysis.graph_analyzer import (
     get_top_connectors,
     get_top_hubs,
 )
+from backend.analysis.risk_scorer import score_contacts, get_top_risk_contacts
 
 router = APIRouter(prefix="/analysis", tags=["Link Analysis"])
 
@@ -118,4 +122,51 @@ def get_key_players(
             "be a major hub while still not bridging anything, so it may "
             "be intentionally absent here even if it appears in 'hubs'."
         ),
+    }
+
+
+@router.get("/{case_id}/risk-ranking")
+def get_risk_ranking(
+    case_id: str,
+    top_n: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """
+    Case-level (per-contact) risk ranking — Phase 9.
+
+    Combines each contact's message-content risk (average + peak) with
+    their position in the communication graph (betweenness centrality,
+    weighted degree from Phase 8), weighted 60% content / 40% network,
+    plus small bonus points for explicit pattern flags (foreign contact,
+    bridges clusters, high-risk content, high network volume).
+
+    This is a transparent rule-based score, not a black-box model — every
+    result includes its full breakdown under "breakdown" and "flags", so
+    a "why was this person flagged?" question always has a real answer.
+    """
+    _require_case(case_id, db)
+
+    chats = db.query(ChatMessage).filter(ChatMessage.case_id == case_id).all()
+    graph, centrality = _build_graph_for_case(case_id, db)
+
+    if not chats and not centrality:
+        return {
+            "case_id": case_id,
+            "ranking": [],
+            "message": "No chat or call records found for this case.",
+        }
+
+    profiles = score_contacts(chats, centrality)
+    ranking = get_top_risk_contacts(profiles, top_n=top_n)
+
+    return {
+        "case_id": case_id,
+        "total_contacts_scored": len(profiles),
+        "scoring_method": (
+            "60% content risk (40% avg message risk + 20% peak message "
+            "risk) + 40% network risk (25% betweenness centrality + 15% "
+            "normalized weighted degree), plus +1 bonus point per "
+            "triggered pattern flag, capped at 10."
+        ),
+        "ranking": ranking,
     }
