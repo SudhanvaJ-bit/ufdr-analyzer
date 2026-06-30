@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.5-flash"
     RAG_TOP_K: int = 15
     MAX_RESPONSE_TOKENS: int = 3072
+    MAX_RESPONSE_TOKENS_PER_SUBQUESTION: int = 1800
     SUSPICIOUS_KEYWORDS: list = [
         "bitcoin", "crypto", "wallet", "btc", "eth", "usdt",
         "drugs", "cocaine", "heroin", "meth", "weed", "ganja",

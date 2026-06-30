@@ -44,7 +44,7 @@ weeks. This tool cuts that down to minutes:
 | 🕸️ **Full Relationship Graph** | NetworkX graph (chats+calls combined), degree + betweenness centrality to find hubs and bridges | ✅ |
 | 📊 **Risk Pattern Detection** | Case-level per-contact risk score combining message content risk with graph position (centrality), with full explainable breakdown | ✅ |
 | 📄 **PDF Reports** | Auto-generated investigation summary documents | 🔜 |
-| 🖥️ **Officer Dashboard** | Streamlit frontend | 🔜 |
+| 🖥️ **Officer Dashboard** | Multi-page Streamlit dashboard — upload, search, ask AI, link analysis graph, risk ranking | ✅ |
 | 🐳 **Docker Deployment** | Containerized, cloud-deployable | 🔜 |
 
 ## ⭐ Why This Project Matters
@@ -183,6 +183,15 @@ uvicorn backend.main:app --reload --port 8000
 ```
 
 Visit **http://localhost:8000/docs** for the interactive Swagger API explorer.
+
+### Launch the dashboard
+
+In a second terminal (keep the backend running in the first):
+```bash
+streamlit run frontend/app.py
+```
+Visit **http://localhost:8501** — upload a case, then use the sidebar to
+navigate Search, Ask AI, Link Analysis, and Risk Ranking.
 
 ## 📖 How to Use
 

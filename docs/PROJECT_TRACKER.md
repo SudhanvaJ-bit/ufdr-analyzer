@@ -7,6 +7,98 @@
 
 ---
 
+## Status: Phase 11 — Streamlit multi-page dashboard complete
+
+### What was completed
+- Built a full multi-page Streamlit dashboard in `frontend/`:
+  - `app.py` — landing page + Upload & Cases (upload a new UFDR file with
+    live status polling, or select a previously uploaded case).
+  - `pages/0_Case_Summary.py` — aggregate stats overview, top risk messages.
+  - `pages/1_Search.py` — keyword search, semantic search, and pre-built
+    queries (crypto chats, foreign calls, common contacts) in one page.
+  - `pages/2_Ask_AI.py` — the RAG Q&A interface; shows live AI mode
+    (Gemini/OpenAI/offline), example questions, and every answer's full
+    cited-source breakdown.
+  - `pages/3_Link_Analysis.py` — interactive Pyvis network graph (node
+    size = degree centrality, node color = betweenness centrality, blue→red)
+    plus a key-players summary table, both backed by Phase 8's
+    `graph_analyzer.py`.
+  - `pages/4_Risk_Ranking.py` — Phase 9's per-contact risk ranking with
+    full transparent breakdown per contact, and a UI warning when top
+    scores cluster tightly (reflecting the real validated limitation
+    found during Phase 9 testing) instead of presenting false precision.
+- `api_client.py` — shared HTTP client + `st.session_state`-based case
+  selection so the chosen case persists across every page without manual
+  re-entry.
+- Verified Pyvis API usage (`Network`, `barnes_hut`, `add_node`,
+  `add_edge`, `generate_html`) against current library documentation,
+  since the sandboxed dev environment couldn't install pyvis directly to
+  test interactively.
+
+### Files created/updated
+- **Created:** `frontend/api_client.py`, `frontend/app.py`,
+  `frontend/pages/0_Case_Summary.py`, `frontend/pages/1_Search.py`,
+  `frontend/pages/2_Ask_AI.py`, `frontend/pages/3_Link_Analysis.py`,
+  `frontend/pages/4_Risk_Ranking.py`
+
+### Current architecture status
+```
+Streamlit Dashboard (frontend/, port 8501)
+        │  (all pages call FastAPI via api_client.py)
+        ▼
+FastAPI Backend (backend/, port 8000)
+  → Upload/Parse/Extract → SQLite
+  → ChromaDB (RAG) | Link Analysis Graph | Risk Scoring
+```
+Every backend feature built so far (upload, search, RAG Q&A, link
+analysis, risk ranking) now has a corresponding dashboard page — nothing
+is API-only anymore.
+
+### Pending tasks
+- Phase 10: PDF report generation (could now also be triggered from the
+  dashboard once built).
+- Phase 12: Docker + deployment — frontend and backend currently must be
+  started as two separate processes (`uvicorn` + `streamlit run`); a
+  docker-compose setup should run both together.
+- Phase 13: GitHub polish, screenshots (the dashboard is the first thing
+  worth screenshotting for the README), demo video.
+- Authentication was deliberately NOT built into the dashboard — documented
+  decision (see ARCHITECTURE.md security section): a half-built auth layer
+  in a Streamlit demo would be a weaker signal than a clear plan for
+  production JWT-based officer/admin roles at the FastAPI layer. Have a
+  ready answer for "why no login screen?" in interviews.
+- Not yet tested end-to-end with the actual running backend (built and
+  syntax-checked in a sandboxed environment without Streamlit/Pyvis
+  installed) — needs a real local run-through before being considered
+  fully verified, unlike Phases 8/9 which were validated against live data.
+
+### Known issues
+- None found yet, but unlike previous phases this hasn't been run live
+  by the user yet — first real run may surface integration issues
+  (e.g. CORS between Streamlit's port and FastAPI's port, though FastAPI
+  has no CORS restrictions configured currently so this is unlikely to
+  be a problem in local dev).
+
+### Next step
+Run the dashboard locally (`streamlit run frontend/app.py`, with the
+backend running separately on port 8000) and walk through the full flow:
+upload → summary → search → ask AI → link analysis → risk ranking.
+Report back anything that breaks.
+
+### How to explain current progress to a new AI chat
+> "I'm building an AI-Based UFDR Forensic Intelligence platform (SIH
+> problem ID 25198). Backend: FastAPI, SQLite+SQLAlchemy, ChromaDB with
+> per-case TF-IDF, Gemini-powered RAG Q&A with citations and a tested
+> fallback chain, a NetworkX link analysis graph, and a transparent
+> per-contact risk scoring system — all validated against real sample
+> data. Just finished a multi-page Streamlit dashboard covering every
+> backend feature, including an interactive Pyvis network visualization
+> for link analysis. Next: PDF reports, then Docker + deployment. Full
+> code is in the attached repo — please read it directly rather than
+> relying on this summary."
+
+---
+
 ## Status: Phase 9 — Risk scoring built on top of the link analysis graph
 
 ### What was completed
@@ -31,6 +123,18 @@
   the most raw connections). This confirms the formula does what it was
   designed to do — convergence of multiple independent signals beats raw
   popularity.
+- **Observed limitation from the real result, worth knowing for any
+  demo:** the top 5 combined_scores in the actual case output were
+  5.56, 5.34, 5.26, 4.67, 4.51 — i.e. the top 3 are within ~0.3 points of
+  each other. With only 7 contacts and fairly uniform message volume in
+  this sample case, the formula doesn't have enough signal spread to
+  justify treating rank 1 vs rank 2 vs rank 3 as a strict, confident
+  ordering. The honest framing for a demo or report: "these top 3 are a
+  tied cluster of priority leads," not "this one person is definitively
+  the most suspicious." This isn't a formula bug — it's an honest
+  reflection of how much separation actually exists in a small, fairly
+  homogeneous sample case, and a larger/more varied real case would
+  likely show clearer separation.
 
 ### Files created/updated
 - **Created:** `backend/analysis/risk_scorer.py`

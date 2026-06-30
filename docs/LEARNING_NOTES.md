@@ -48,6 +48,70 @@ manage a multi-week project with clear checkpoints rather than just
 
 ---
 
+## frontend/ — Streamlit multi-page dashboard (new — Phase 11)
+
+**Purpose:** Gives every backend feature built so far (upload, search,
+RAG Q&A, link analysis, risk ranking) an actual visual interface, instead
+of living only as JSON in Swagger.
+
+**Key files:**
+- `api_client.py` — one shared module for every HTTP call to the FastAPI
+  backend, plus `st.session_state`-based case selection so picking a case
+  once carries across every page.
+- `app.py` — entry point; landing page + upload/case-selection.
+- `pages/0_Case_Summary.py` through `pages/4_Risk_Ranking.py` — one page
+  per major feature; Streamlit auto-builds the sidebar nav from filenames.
+
+**Why a shared `api_client.py` instead of each page calling `requests`
+directly:** Every page needs the same backend URL, the same error
+handling for "backend isn't running," and the same case_id persistence.
+Centralizing it means the backend URL only needs to change in one place,
+and every page gets the same friendly error messages for free.
+
+**Why `st.session_state` for case selection:** Streamlit's multi-page
+apps are really separate scripts re-run under one shared session — so
+`session_state` is the mechanism that lets "I selected Case X on the
+Upload page" still be true when the officer clicks over to the Search
+page. Without it, every page would need its own case_id input field.
+
+**Why Pyvis specifically for the link analysis graph:** It renders an
+interactive HTML/JS network (built on vis.js) that can be embedded
+directly into Streamlit via `st.components.v1.html`. Node size encodes
+degree centrality and node color encodes betweenness centrality — two
+different visual channels for two different metrics, so a node can
+visually be "big but blue" (a popular hub that ISN'T a bridge) at the
+same time, which is exactly the real finding from Phase 8's validation
+(the top hub had zero betweenness).
+
+**Why the Risk Ranking page warns about clustered scores instead of just
+showing a sorted list:** Real Phase 9 testing showed top scores can
+cluster within ~0.3-0.5 points of each other on a small case. A plain
+sorted list would visually imply more confidence in rank order than the
+underlying signal supports. The page explicitly detects this (checking if
+multiple top scores are within 0.5 points) and shows a warning rather
+than letting the UI oversell precision.
+
+**Interview questions:**
+- "Why Streamlit instead of React for the frontend?" → ships much faster
+  for a data-heavy internal tool; React would be the right call for a
+  customer-facing product, but for this kind of officer dashboard,
+  Streamlit's tradeoff of less customization for much faster development
+  was the right one given the project's scope and timeline.
+- "How does case selection persist across pages?" → `st.session_state`,
+  since Streamlit's multi-page apps share one session across page scripts.
+- "Walk me through the link analysis visualization." → two independent
+  visual encodings (size=degree, color=betweenness) on the same node, so
+  both metrics are visible simultaneously without one hiding the other.
+
+**Simple interview explanation:** "I built a multi-page Streamlit
+dashboard so every backend feature — search, RAG Q&A, the link analysis
+graph, risk ranking — actually has a usable interface instead of just
+being an API response. The network graph uses node size and color as two
+separate visual signals so you can see at a glance who's popular versus
+who's structurally important, which aren't always the same person."
+
+---
+
 ## backend/analysis/risk_scorer.py (new — Phase 9)
 
 **Purpose:** Combines per-message content risk (already computed by
@@ -93,6 +157,19 @@ bridge any clusters) despite having the most connections. This is the
 formula working as designed: convergence of independent signals beats
 raw popularity.
 
+**Honest limitation observed in the same real result:** The top 3
+combined_scores came back as 5.56, 5.34, and 5.26 — within roughly 0.3
+points of each other. With only 7 contacts and fairly uniform message
+volume in this sample case, that's not enough separation to treat rank 1
+vs. rank 2 vs. rank 3 as a confident, strict ordering. The right way to
+present this kind of result (in a demo or in an actual report) is "these
+are a tied cluster of top leads," not "this one person is definitively
+#1." This is a property of the underlying data's homogeneity in a small
+sample case, not a flaw in the scoring formula itself — a larger or more
+varied case would likely separate the rankings more clearly. Worth being
+upfront about this if asked "how confident is this ranking?" rather than
+overselling the precision of a single sorted list.
+
 **Common errors and how to debug:**
 - *A contact appears with all-zero content risk but a nonzero score* →
   expected if they have no chat history but DO appear in the
@@ -113,6 +190,11 @@ raw popularity.
   a risky message equally; a more refined version might weight the
   sender's own risk more heavily, since sending implicates more directly
   than receiving.
+- "How confident are you in this exact ranking order?" → be honest: when
+  scores cluster tightly (as they did in real testing — top 3 within
+  ~0.3 points), present them as a tied group of leads rather than a
+  strict order. The formula's job is to narrow down who deserves
+  attention, not to produce false precision.
 
 **Simple interview explanation:** "I combine each person's message
 content risk with their position in the communication graph from Phase

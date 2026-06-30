@@ -130,3 +130,20 @@ together with one command.
   full audit logging of every query (chain-of-custody requirement for
   forensic tools), and strict input validation on all ingested file formats
   to avoid parser exploits.
+
+**Deliberate decision: no authentication was built into the Streamlit
+dashboard (Phase 11).** This was a conscious tradeoff, not an oversight:
+- Streamlit's session model isn't designed for production-grade
+  multi-user authentication — building it "properly" effectively means
+  standing up a separate login service in front of the dashboard, which
+  is disproportionate scope for what is fundamentally a demo/internal
+  tool layer, not the production target.
+- A half-built auth screen (e.g. hardcoded test credentials, no token
+  refresh handling) would be a weaker signal in review than a clearly
+  documented plan for the real thing.
+- **The actual production plan:** JWT-based authentication at the
+  FastAPI layer itself (not the dashboard), with officer/admin roles,
+  case access scoped per authenticated officer, and every query logged
+  for chain-of-custody purposes — consistent with the JWT line above.
+  The dashboard would then sit behind that authenticated API rather than
+  implementing its own separate auth.

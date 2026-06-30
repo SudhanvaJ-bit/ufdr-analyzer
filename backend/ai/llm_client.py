@@ -47,39 +47,40 @@ class LLMClient:
         else:
             return "offline"
 
-    def ask(self, question: str, context: str, system_prompt: str = "") -> dict:
+    def ask(self, question: str, context: str, system_prompt: str = "", topic_count: int = 1) -> dict:
         """
         Ask a question with context retrieved from ChromaDB.
-
-        Args:
-            question:      Officer's natural language question
-            context:       Relevant evidence retrieved from ChromaDB
-            system_prompt: Instructions for the LLM's role/behaviour.
-                           If left blank, FORENSIC_SYSTEM_PROMPT is used —
-                           this matters because skipping it would let the
-                           model answer without the "only use the provided
-                           evidence" grounding instruction.
-
-        Returns:
-            {answer, mode, tokens_used, error}
         """
         system_prompt = system_prompt or FORENSIC_SYSTEM_PROMPT
 
         if self.mode == "gemini":
-            return self._ask_gemini(question, context, system_prompt)
+            return self._ask_gemini(question, context, system_prompt, topic_count)
         elif self.mode == "openai":
             return self._ask_openai(question, context, system_prompt)
         else:
             return self._offline_summary(question, context)
 
-    def _ask_gemini(self, question: str, context: str, system_prompt: str) -> dict:
+    def _ask_gemini(self, question: str, context: str, system_prompt: str, topic_count: int = 1) -> dict:
         """Call Google Gemini API."""
         try:
             import google.generativeai as genai
             genai.configure(api_key=settings.GEMINI_API_KEY)
             model = genai.GenerativeModel(settings.GEMINI_MODEL)
 
-            # Combine system prompt + context + question
+            token_budget = settings.MAX_RESPONSE_TOKENS + (
+                max(topic_count - 1, 0) * settings.MAX_RESPONSE_TOKENS_PER_SUBQUESTION
+            )
+
+            topic_instruction = (
+                f"\nThis question covers {topic_count} distinct topics. "
+                f"Give each topic its own clearly labeled section, with "
+                f"roughly EQUAL depth for each — do not exhaust your "
+                f"answer on the first topic and leave the rest brief or "
+                f"missing. Cover every topic completely before adding "
+                f"extra detail to any single one.\n"
+                if topic_count > 1 else ""
+            )
+
             full_prompt = f"""{system_prompt}
 
 FORENSIC EVIDENCE CONTEXT:
@@ -87,7 +88,7 @@ FORENSIC EVIDENCE CONTEXT:
 
 INVESTIGATOR'S QUESTION:
 {question}
-
+{topic_instruction}
 Provide a clear, structured answer based ONLY on the evidence above.
 
 FORMAT RULES (important — keep the answer scannable, not exhaustive):
@@ -106,8 +107,8 @@ FORMAT RULES (important — keep the answer scannable, not exhaustive):
             response = model.generate_content(
                 full_prompt,
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=settings.MAX_RESPONSE_TOKENS,
-                    temperature=0.1,   # low temperature = more factual, less creative
+                    max_output_tokens=token_budget,
+                    temperature=0.1,
                 )
             )
             return {
